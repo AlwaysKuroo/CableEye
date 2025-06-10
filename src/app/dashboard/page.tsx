@@ -1,9 +1,10 @@
+
 'use client';
 
-import CableReportForm from '@/components/cable-report-form';
+import CableReportForm, { ReportFormValues } from '@/components/cable-report-form';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { PlusCircle, Map, ListChecks, MapPin, Tag, Camera, FileText, CheckCircle, AlertTriangle, HelpCircle } from 'lucide-react';
+import { PlusCircle, Map, ListChecks, MapPin, Tag, Camera, FileText, CheckCircle, AlertTriangle, HelpCircle, Edit3 } from 'lucide-react';
 import React, { useState, useEffect } from 'react';
 import Image from 'next/image';
 
@@ -11,7 +12,8 @@ interface Report {
   id: string;
   latitude: string;
   longitude: string;
-  photoUrl?: string; // URL of the uploaded photo
+  photo?: File; 
+  photoUrl?: string; 
   photoFileName?: string;
   status: 'identified' | 'doubtful' | 'not_yet_identified';
   description: string;
@@ -33,33 +35,86 @@ const statusText = {
 export default function DashboardPage() {
   const [reports, setReports] = useState<Report[]>([]);
   const [clientMounted, setClientMounted] = useState(false);
+  const [isFormOpen, setIsFormOpen] = useState(false);
+  const [editingReport, setEditingReport] = useState<Report | null>(null);
 
   useEffect(() => {
     setClientMounted(true);
-    // Load reports from local storage or API if available
     const storedReports = localStorage.getItem('cableReports');
     if (storedReports) {
-      setReports(JSON.parse(storedReports).map((report: Report) => ({...report, timestamp: new Date(report.timestamp)})));
+      try {
+        const parsedReports = JSON.parse(storedReports).map((report: any) => ({
+            ...report, 
+            timestamp: new Date(report.timestamp),
+            // photoUrl might be an object URL which could be invalid on reload.
+            // For robust prototype, store as base64 or re-upload. Current behavior is kept.
+        }));
+        setReports(parsedReports);
+      } catch (error) {
+        console.error("Failed to parse reports from localStorage", error);
+        localStorage.removeItem('cableReports'); // Clear corrupted data
+      }
     }
   }, []);
 
   useEffect(() => {
     if(clientMounted) {
-      localStorage.setItem('cableReports', JSON.stringify(reports));
+      localStorage.setItem('cableReports', JSON.stringify(reports.map(r => ({...r, photo: undefined})))); // Don't store File object
     }
   }, [reports, clientMounted]);
 
+  const openAddNewReportForm = () => {
+    setEditingReport(null);
+    setIsFormOpen(true);
+  };
 
-  const handleReportSubmit = (data: any) => {
-    console.log('New report data:', data);
-    const newReport: Report = {
-      id: Date.now().toString(), // Simple ID generation
-      ...data,
-      photoUrl: data.photo ? URL.createObjectURL(data.photo) : undefined,
-      photoFileName: data.photo ? data.photo.name : undefined,
-      timestamp: new Date(),
-    };
-    setReports(prevReports => [newReport, ...prevReports]);
+  const openEditReportForm = (report: Report) => {
+    setEditingReport(report);
+    setIsFormOpen(true);
+  };
+
+  const handleFormSubmit = (formData: ReportFormValues, reportIdToEdit?: string) => {
+    if (reportIdToEdit) { // Editing existing report
+      setReports(prevReports =>
+        prevReports.map(r => {
+          if (r.id === reportIdToEdit) {
+            const updatedReport: Report = {
+              ...r,
+              latitude: formData.latitude,
+              longitude: formData.longitude,
+              status: formData.status,
+              description: formData.description,
+              timestamp: new Date(), // Update timestamp on edit
+            };
+            if (formData.photo) { // If a new photo was uploaded
+              // Revoke old object URL if it exists and is a blob
+              if (updatedReport.photoUrl && updatedReport.photoUrl.startsWith('blob:')) {
+                URL.revokeObjectURL(updatedReport.photoUrl);
+              }
+              updatedReport.photoUrl = URL.createObjectURL(formData.photo);
+              updatedReport.photoFileName = formData.photo.name;
+            }
+            // The 'photo' File object itself is not stored in 'reports' state
+            return updatedReport;
+          }
+          return r;
+        })
+      );
+    } else { // Adding new report
+      const newReport: Report = {
+        id: Date.now().toString(),
+        latitude: formData.latitude,
+        longitude: formData.longitude,
+        status: formData.status,
+        description: formData.description,
+        photoUrl: formData.photo ? URL.createObjectURL(formData.photo) : undefined,
+        photoFileName: formData.photo ? formData.photo.name : undefined,
+        timestamp: new Date(),
+      };
+      setReports(prevReports => [newReport, ...prevReports]);
+    }
+    setIsFormOpen(false);
+    setEditingReport(null);
   };
 
   return (
@@ -69,16 +124,20 @@ export default function DashboardPage() {
           <h1 className="font-headline text-4xl font-bold text-foreground">Dashboard</h1>
           <p className="text-muted-foreground font-body">Monitor and manage cable anomaly reports.</p>
         </div>
-        <CableReportForm onReportSubmit={handleReportSubmit}>
-          <Button className="font-headline text-lg">
-            <PlusCircle className="mr-2 h-5 w-5" />
-            Add New Report
-          </Button>
-        </CableReportForm>
+        <Button onClick={openAddNewReportForm} className="font-headline text-lg">
+          <PlusCircle className="mr-2 h-5 w-5" />
+          Add New Report
+        </Button>
       </div>
 
+      <CableReportForm
+        isOpen={isFormOpen}
+        onClose={() => setIsFormOpen(false)}
+        initialData={editingReport}
+        onReportSubmit={handleFormSubmit}
+      />
+
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
-        {/* Map Area - Left Column on Large Screens */}
         <Card className="lg:col-span-2 shadow-lg">
           <CardHeader>
             <CardTitle className="font-headline text-2xl flex items-center"><Map className="mr-2 h-6 w-6 text-accent" /> Anomalies Map</CardTitle>
@@ -90,13 +149,12 @@ export default function DashboardPage() {
                 Interactive map will display anomaly locations here.
                 <br />
                 {clientMounted && reports.length > 0 && `Currently showing ${reports.length} report(s) on map.`}
+                 {clientMounted && reports.length === 0 && "No reports to display on map yet."}
               </p>
             </div>
-            {/* Placeholder for map integration */}
           </CardContent>
         </Card>
 
-        {/* Recent Reports - Right Column on Large Screens or Full Width on Smaller */}
         <Card className="lg:col-span-1 shadow-lg">
           <CardHeader>
             <CardTitle className="font-headline text-2xl flex items-center"><ListChecks className="mr-2 h-6 w-6 text-accent" /> Recent Reports</CardTitle>
@@ -114,8 +172,11 @@ export default function DashboardPage() {
                         {statusIcons[report.status]}
                         <span className="font-headline">{statusText[report.status]}</span>
                       </div>
-                      <p className="text-xs text-muted-foreground">{report.timestamp.toLocaleDateString()}</p>
+                       <Button variant="ghost" size="sm" onClick={() => openEditReportForm(report)} aria-label="Edit report">
+                        <Edit3 className="h-4 w-4" />
+                      </Button>
                     </div>
+                     <p className="text-xs text-muted-foreground mb-1">{report.timestamp.toLocaleDateString()} {report.timestamp.toLocaleTimeString()}</p>
                     <p className="mb-1 text-sm font-body line-clamp-2 text-foreground/90" title={report.description}>
                       <FileText className="inline mr-1.5 h-4 w-4 text-muted-foreground" /> {report.description}
                     </p>
@@ -124,8 +185,8 @@ export default function DashboardPage() {
                     </p>
                     {report.photoUrl && (
                       <div className="mt-2">
-                         <Image data-ai-hint="cable electrical" src={report.photoUrl} alt="Anomaly photo" width={80} height={80} className="rounded-md object-cover h-20 w-20 border" />
-                         <p className="text-xs text-muted-foreground mt-1 truncate">{report.photoFileName}</p>
+                         <Image data-ai-hint="cable electrical" src={report.photoUrl} alt={report.photoFileName || "Anomaly photo"} width={80} height={80} className="rounded-md object-cover h-20 w-20 border" onError={(e) => { e.currentTarget.style.display = 'none'; /* Hide if image fails to load */}}/>
+                         {report.photoFileName && <p className="text-xs text-muted-foreground mt-1 truncate w-20" title={report.photoFileName}>{report.photoFileName}</p>}
                       </div>
                     )}
                   </div>
@@ -133,7 +194,7 @@ export default function DashboardPage() {
               </div>
             )}
             {clientMounted && reports.length > 5 && (
-                 <Button variant="link" className="mt-4 w-full text-accent">View All Reports</Button>
+                 <Button variant="link" className="mt-4 w-full text-accent">View All Reports</Button> // This button functionality is not implemented yet
             )}
           </CardContent>
         </Card>

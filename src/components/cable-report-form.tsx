@@ -1,7 +1,8 @@
+
 'use client';
 
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, DialogClose } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -16,35 +17,93 @@ import { useToast } from "@/hooks/use-toast";
 const reportSchema = z.object({
   latitude: z.string().min(1, { message: "Latitude is required."}),
   longitude: z.string().min(1, { message: "Longitude is required."}),
-  photo: z.any().optional(), // In a real app, validate file type/size
+  photo: z.any().optional(), 
   status: z.enum(["identified", "doubtful", "not_yet_identified"], { required_error: "Status is required."}),
   description: z.string().min(1, { message: "Description is required."}).max(500, { message: "Description too long."}),
 });
 
-type ReportFormValues = z.infer<typeof reportSchema>;
+export type ReportFormValues = z.infer<typeof reportSchema>;
 
-interface CableReportFormProps {
-  onReportSubmit: (data: ReportFormValues) => void;
-  children: React.ReactNode; // For the trigger button
+interface Report { // Duplicating interface for clarity, ideally import from a shared types file
+  id: string;
+  latitude: string;
+  longitude: string;
+  photoUrl?: string;
+  photoFileName?: string;
+  status: 'identified' | 'doubtful' | 'not_yet_identified';
+  description: string;
+  timestamp: Date;
 }
 
-export default function CableReportForm({ onReportSubmit, children }: CableReportFormProps) {
+interface CableReportFormProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onReportSubmit: (data: ReportFormValues, reportIdToEdit?: string) => void;
+  initialData?: Report | null; 
+}
+
+export default function CableReportForm({ isOpen, onClose, onReportSubmit, initialData }: CableReportFormProps) {
   const { toast } = useToast();
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
 
   const { register, handleSubmit, setValue, reset, formState: { errors } } = useForm<ReportFormValues>({
     resolver: zodResolver(reportSchema),
     defaultValues: {
-      status: "not_yet_identified"
+      status: "not_yet_identified",
+      latitude: "",
+      longitude: "",
+      description: "",
+      photo: undefined,
     }
   });
+
+  useEffect(() => {
+    if (isOpen) {
+      if (initialData) {
+        const formValues: ReportFormValues = {
+          latitude: initialData.latitude,
+          longitude: initialData.longitude,
+          status: initialData.status,
+          description: initialData.description,
+          photo: undefined, 
+        };
+        reset(formValues);
+        if (initialData.photoUrl) {
+          setPhotoPreview(initialData.photoUrl);
+          setFileName(initialData.photoFileName || 'Existing photo');
+        } else {
+          setPhotoPreview(null);
+          setFileName(null);
+        }
+      } else {
+        reset({ status: "not_yet_identified", latitude: '', longitude: '', description: '', photo: undefined });
+        setPhotoPreview(null);
+        setFileName(null);
+      }
+    }
+  }, [isOpen, initialData, reset]);
+  
+  // Clean up object URL for new previews
+  useEffect(() => {
+    let currentPhotoPreview = photoPreview;
+    let isObjectURL = currentPhotoPreview?.startsWith('blob:');
+
+    return () => {
+      if (currentPhotoPreview && isObjectURL) {
+        URL.revokeObjectURL(currentPhotoPreview);
+      }
+    };
+  }, [photoPreview]);
+
 
   const handlePhotoChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     if (event.target.files && event.target.files[0]) {
       const file = event.target.files[0];
-      setValue('photo', file);
+      setValue('photo', file, { shouldValidate: true });
+      if (photoPreview && photoPreview.startsWith('blob:')) {
+        URL.revokeObjectURL(photoPreview); // Revoke old blob URL if it exists
+      }
       setPhotoPreview(URL.createObjectURL(file));
       setFileName(file.name);
     }
@@ -80,39 +139,24 @@ export default function CableReportForm({ onReportSubmit, children }: CableRepor
   };
 
   const processSubmit: SubmitHandler<ReportFormValues> = (data) => {
-    onReportSubmit(data);
-    reset();
-    setPhotoPreview(null);
-    setFileName(null);
-    setIsDialogOpen(false); // Close dialog on successful submit
+    onReportSubmit(data, initialData?.id);
     toast({
-      title: "Report Submitted!",
-      description: "Your cable anomaly report has been successfully submitted.",
+      title: initialData ? "Report Updated!" : "Report Submitted!",
+      description: initialData ? "Your cable anomaly report has been successfully updated." : "Your cable anomaly report has been successfully submitted.",
     });
+    onClose(); 
   };
-  
-  // Clean up object URL
-  useEffect(() => {
-    return () => {
-      if (photoPreview) {
-        URL.revokeObjectURL(photoPreview);
-      }
-    };
-  }, [photoPreview]);
-
 
   return (
-    <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-      <DialogTrigger asChild>
-        {children}
-      </DialogTrigger>
+    <Dialog open={isOpen} onOpenChange={(openState) => { if (!openState) onClose(); }}>
       <DialogContent className="sm:max-w-lg bg-card text-card-foreground">
         <DialogHeader>
           <DialogTitle className="font-headline text-2xl flex items-center">
-            <AlertTriangle className="mr-2 h-6 w-6 text-primary" /> Report New Anomaly
+            <AlertTriangle className="mr-2 h-6 w-6 text-primary" /> 
+            {initialData ? 'Edit Anomaly Report' : 'Report New Anomaly'}
           </DialogTitle>
           <DialogDescription className="font-body">
-            Fill in the details of the cable anomaly. All fields are required.
+            {initialData ? 'Update the details of the cable anomaly.' : 'Fill in the details of the cable anomaly. All fields are required.'}
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit(processSubmit)} className="space-y-6 py-4">
@@ -138,6 +182,7 @@ export default function CableReportForm({ onReportSubmit, children }: CableRepor
                 <label htmlFor="photo-upload" className="flex flex-col items-center justify-center w-full h-48 border-2 border-dashed rounded-lg cursor-pointer bg-muted hover:bg-muted/80 border-gray-600 hover:border-gray-500">
                     <div className="flex flex-col items-center justify-center pt-5 pb-6">
                         {photoPreview ? (
+                           // eslint-disable-next-line @next/next/no-img-element
                            <img src={photoPreview} alt="Preview" className="max-h-28 rounded-md mb-2 object-contain" />
                         ) : (
                           <UploadCloud className="w-10 h-10 mb-3 text-gray-400" />
@@ -153,7 +198,10 @@ export default function CableReportForm({ onReportSubmit, children }: CableRepor
 
           <div className="space-y-2">
             <Label htmlFor="status" className="font-headline flex items-center"><Tag className="mr-2 h-4 w-4" />Status</Label>
-            <Select onValueChange={(value) => setValue('status', value as "identified" | "doubtful" | "not_yet_identified", { shouldValidate: true })} defaultValue="not_yet_identified">
+            <Select 
+              defaultValue={initialData?.status || "not_yet_identified"} 
+              onValueChange={(value) => setValue('status', value as "identified" | "doubtful" | "not_yet_identified", { shouldValidate: true })}
+            >
               <SelectTrigger id="status" className={errors.status ? 'border-destructive' : ''}>
                 <SelectValue placeholder="Select status" />
               </SelectTrigger>
@@ -173,10 +221,8 @@ export default function CableReportForm({ onReportSubmit, children }: CableRepor
           </div>
 
           <DialogFooter>
-            <DialogClose asChild>
-              <Button type="button" variant="outline">Cancel</Button>
-            </DialogClose>
-            <Button type="submit" className="font-headline">Submit Report</Button>
+            <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
+            <Button type="submit" className="font-headline">{initialData ? 'Update Report' : 'Submit Report'}</Button>
           </DialogFooter>
         </form>
       </DialogContent>
