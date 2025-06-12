@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { Camera, FileText, MapPin, Tag, LocateFixed, UploadCloud, CheckCircle, AlertTriangle, HelpCircle } from 'lucide-react';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useForm, SubmitHandler } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import *  as z from 'zod';
@@ -24,16 +24,15 @@ const reportSchema = z.object({
 
 export type ReportFormValues = z.infer<typeof reportSchema>;
 
-// Ini adalah tipe data yang diterima oleh form sebagai initialData
 interface FormInitialData {
-  id?: string; // ID penting untuk mode edit
+  id?: string;
   latitude: string;
   longitude: string;
-  photoUrl?: string; // Untuk pratinjau foto yang sudah ada (jika dari URL blob lokal)
-  photoFileName?: string; // Nama file foto yang sudah ada
+  photoUrl?: string; 
+  photoFileName?: string; 
   status: 'identified' | 'doubtful' | 'not_yet_identified';
   description: string;
-  timestamp?: Date; // Timestamp mungkin berguna, meskipun tidak diedit secara langsung di form
+  timestamp?: Date;
 }
 
 interface CableReportFormProps {
@@ -47,6 +46,7 @@ export default function CableReportForm({ isOpen, onClose, onReportSubmit, initi
   const { toast } = useToast();
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
 
   const { register, handleSubmit, setValue, reset, formState: { errors } } = useForm<ReportFormValues>({
     resolver: zodResolver(reportSchema),
@@ -62,19 +62,19 @@ export default function CableReportForm({ isOpen, onClose, onReportSubmit, initi
   useEffect(() => {
     if (isOpen) {
       if (initialData) {
-        const formValues: Partial<ReportFormValues> = { // Partial karena photo tidak selalu ada
+        const formValues: Partial<ReportFormValues> = { 
           latitude: initialData.latitude,
           longitude: initialData.longitude,
           status: initialData.status,
           description: initialData.description,
         };
         reset(formValues);
-        // Tangani pratinjau foto yang ada (jika ada photoUrl dari blob lokal atau nama file untuk indikasi)
+        
         if (initialData.photoUrl && initialData.photoUrl.startsWith('blob:')) {
             setPhotoPreview(initialData.photoUrl);
             setFileName(initialData.photoFileName || 'Existing photo');
         } else if (initialData.photoFileName) {
-            setPhotoPreview(null); // Tidak ada URL blob, jadi tidak ada pratinjau langsung dari file lama
+            setPhotoPreview(null); 
             setFileName(initialData.photoFileName);
         } else {
             setPhotoPreview(null);
@@ -141,9 +141,12 @@ export default function CableReportForm({ isOpen, onClose, onReportSubmit, initi
     }
   };
 
+  const handleCameraCaptureClick = () => {
+    cameraInputRef.current?.click();
+  };
+
   const processSubmit: SubmitHandler<ReportFormValues> = (data) => {
     onReportSubmit(data, initialData?.id);
-    // Toast dipindahkan ke parent component (DashboardPage) setelah operasi Firestore berhasil
     onClose(); 
   };
 
@@ -177,25 +180,53 @@ export default function CableReportForm({ isOpen, onClose, onReportSubmit, initi
           </Button>
 
           <div className="space-y-2">
-            <Label htmlFor="photo" className="font-headline flex items-center"><Camera className="mr-2 h-4 w-4" />Photo Evidence</Label>
-            <div className="flex items-center justify-center w-full">
-                <label htmlFor="photo-upload" className="flex flex-col items-center justify-center w-full h-48 border-2 border-dashed rounded-lg cursor-pointer bg-muted hover:bg-muted/80 border-gray-600 hover:border-gray-500">
-                    <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                        {photoPreview ? (
-                           // eslint-disable-next-line @next/next/no-img-element
-                           <img src={photoPreview} alt="Preview" className="max-h-28 rounded-md mb-2 object-contain" />
-                        ) : (
-                          <UploadCloud className="w-10 h-10 mb-3 text-gray-400" />
-                        )}
-                        <p className="mb-2 text-sm text-gray-400"><span className="font-semibold">Click to upload</span> or drag and drop</p>
-                        <p className="text-xs text-gray-400">{fileName || "SVG, PNG, JPG or GIF (MAX. 800x400px)"}</p>
-                         {initialData?.id && fileName && !photoPreview && <p className="text-xs text-amber-500 mt-1">Current photo: {fileName}. Upload new to replace.</p>}
-                    </div>
-                    <Input id="photo-upload" type="file" className="hidden" onChange={handlePhotoChange} accept="image/*" />
+            <Label className="font-headline flex items-center"><Camera className="mr-2 h-4 w-4" />Photo Evidence</Label>
+            
+            {photoPreview && (
+              <div className="mb-2 flex justify-center">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={photoPreview} alt="Preview" className="max-h-40 rounded-md object-contain border" />
+              </div>
+            )}
+            {fileName && !photoPreview && (
+              <div className="mb-2 text-center text-sm text-muted-foreground">
+                Current file: {fileName}
+                {initialData?.id && initialData.photoFileName && fileName === initialData.photoFileName && <span className="text-amber-500"> (This is the existing photo. Upload/capture new to replace.)</span>}
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label htmlFor="photo-upload" className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-lg cursor-pointer bg-muted hover:bg-muted/80">
+                    <UploadCloud className="w-8 h-8 mb-2 text-muted-foreground" />
+                    <p className="text-sm text-muted-foreground"><span className="font-semibold">Upload from File</span></p>
+                    <p className="text-xs text-muted-foreground">Drag & drop or click</p>
                 </label>
+                <Input id="photo-upload" type="file" className="hidden" onChange={handlePhotoChange} accept="image/*" />
+              </div>
+              <div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleCameraCaptureClick}
+                  className="w-full h-32 flex flex-col items-center justify-center border-2 border-dashed rounded-lg bg-muted hover:bg-muted/80"
+                >
+                  <Camera className="w-8 h-8 mb-2 text-muted-foreground" />
+                  <p className="text-sm text-muted-foreground"><span className="font-semibold">Capture with Camera</span></p>
+                  <p className="text-xs text-muted-foreground">Use device camera</p>
+                </Button>
+                <Input
+                  type="file"
+                  className="hidden"
+                  accept="image/*"
+                  capture="environment"
+                  ref={cameraInputRef}
+                  onChange={handlePhotoChange}
+                />
+              </div>
             </div>
             {errors.photo && <p className="text-sm text-destructive">{errors.photo.message?.toString()}</p>}
-             <p className="text-xs text-muted-foreground text-center mt-1">For persistent photo storage, Firebase Storage integration is needed.</p>
+            <p className="text-xs text-muted-foreground text-center mt-1">For persistent photo storage, Firebase Storage integration is needed.</p>
           </div>
 
           <div className="space-y-2">
@@ -231,3 +262,4 @@ export default function CableReportForm({ isOpen, onClose, onReportSubmit, initi
     </Dialog>
   );
 }
+
