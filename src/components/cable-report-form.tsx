@@ -24,22 +24,23 @@ const reportSchema = z.object({
 
 export type ReportFormValues = z.infer<typeof reportSchema>;
 
-interface Report { // Duplicating interface for clarity, ideally import from a shared types file
-  id: string;
+// Ini adalah tipe data yang diterima oleh form sebagai initialData
+interface FormInitialData {
+  id?: string; // ID penting untuk mode edit
   latitude: string;
   longitude: string;
-  photoUrl?: string;
-  photoFileName?: string;
+  photoUrl?: string; // Untuk pratinjau foto yang sudah ada (jika dari URL blob lokal)
+  photoFileName?: string; // Nama file foto yang sudah ada
   status: 'identified' | 'doubtful' | 'not_yet_identified';
   description: string;
-  timestamp: Date;
+  timestamp?: Date; // Timestamp mungkin berguna, meskipun tidak diedit secara langsung di form
 }
 
 interface CableReportFormProps {
   isOpen: boolean;
   onClose: () => void;
   onReportSubmit: (data: ReportFormValues, reportIdToEdit?: string) => void;
-  initialData?: Report | null; 
+  initialData?: FormInitialData | null; 
 }
 
 export default function CableReportForm({ isOpen, onClose, onReportSubmit, initialData }: CableReportFormProps) {
@@ -61,20 +62,23 @@ export default function CableReportForm({ isOpen, onClose, onReportSubmit, initi
   useEffect(() => {
     if (isOpen) {
       if (initialData) {
-        const formValues: ReportFormValues = {
+        const formValues: Partial<ReportFormValues> = { // Partial karena photo tidak selalu ada
           latitude: initialData.latitude,
           longitude: initialData.longitude,
           status: initialData.status,
           description: initialData.description,
-          photo: undefined, 
         };
         reset(formValues);
-        if (initialData.photoUrl) {
-          setPhotoPreview(initialData.photoUrl);
-          setFileName(initialData.photoFileName || 'Existing photo');
+        // Tangani pratinjau foto yang ada (jika ada photoUrl dari blob lokal atau nama file untuk indikasi)
+        if (initialData.photoUrl && initialData.photoUrl.startsWith('blob:')) {
+            setPhotoPreview(initialData.photoUrl);
+            setFileName(initialData.photoFileName || 'Existing photo');
+        } else if (initialData.photoFileName) {
+            setPhotoPreview(null); // Tidak ada URL blob, jadi tidak ada pratinjau langsung dari file lama
+            setFileName(initialData.photoFileName);
         } else {
-          setPhotoPreview(null);
-          setFileName(null);
+            setPhotoPreview(null);
+            setFileName(null);
         }
       } else {
         reset({ status: "not_yet_identified", latitude: '', longitude: '', description: '', photo: undefined });
@@ -84,7 +88,6 @@ export default function CableReportForm({ isOpen, onClose, onReportSubmit, initi
     }
   }, [isOpen, initialData, reset]);
   
-  // Clean up object URL for new previews
   useEffect(() => {
     let currentPhotoPreview = photoPreview;
     let isObjectURL = currentPhotoPreview?.startsWith('blob:');
@@ -102,7 +105,7 @@ export default function CableReportForm({ isOpen, onClose, onReportSubmit, initi
       const file = event.target.files[0];
       setValue('photo', file, { shouldValidate: true });
       if (photoPreview && photoPreview.startsWith('blob:')) {
-        URL.revokeObjectURL(photoPreview); // Revoke old blob URL if it exists
+        URL.revokeObjectURL(photoPreview); 
       }
       setPhotoPreview(URL.createObjectURL(file));
       setFileName(file.name);
@@ -140,10 +143,7 @@ export default function CableReportForm({ isOpen, onClose, onReportSubmit, initi
 
   const processSubmit: SubmitHandler<ReportFormValues> = (data) => {
     onReportSubmit(data, initialData?.id);
-    toast({
-      title: initialData ? "Report Updated!" : "Report Submitted!",
-      description: initialData ? "Your cable anomaly report has been successfully updated." : "Your cable anomaly report has been successfully submitted.",
-    });
+    // Toast dipindahkan ke parent component (DashboardPage) setelah operasi Firestore berhasil
     onClose(); 
   };
 
@@ -153,10 +153,10 @@ export default function CableReportForm({ isOpen, onClose, onReportSubmit, initi
         <DialogHeader>
           <DialogTitle className="font-headline text-2xl flex items-center">
             <AlertTriangle className="mr-2 h-6 w-6 text-primary" /> 
-            {initialData ? 'Edit Anomaly Report' : 'Report New Anomaly'}
+            {initialData?.id ? 'Edit Anomaly Report' : 'Report New Anomaly'}
           </DialogTitle>
           <DialogDescription className="font-body">
-            {initialData ? 'Update the details of the cable anomaly.' : 'Fill in the details of the cable anomaly. All fields are required.'}
+            {initialData?.id ? 'Update the details of the cable anomaly.' : 'Fill in the details of the cable anomaly. All fields are required.'}
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit(processSubmit)} className="space-y-6 py-4">
@@ -189,11 +189,13 @@ export default function CableReportForm({ isOpen, onClose, onReportSubmit, initi
                         )}
                         <p className="mb-2 text-sm text-gray-400"><span className="font-semibold">Click to upload</span> or drag and drop</p>
                         <p className="text-xs text-gray-400">{fileName || "SVG, PNG, JPG or GIF (MAX. 800x400px)"}</p>
+                         {initialData?.id && fileName && !photoPreview && <p className="text-xs text-amber-500 mt-1">Current photo: {fileName}. Upload new to replace.</p>}
                     </div>
                     <Input id="photo-upload" type="file" className="hidden" onChange={handlePhotoChange} accept="image/*" />
                 </label>
             </div>
             {errors.photo && <p className="text-sm text-destructive">{errors.photo.message?.toString()}</p>}
+             <p className="text-xs text-muted-foreground text-center mt-1">For persistent photo storage, Firebase Storage integration is needed.</p>
           </div>
 
           <div className="space-y-2">
@@ -222,7 +224,7 @@ export default function CableReportForm({ isOpen, onClose, onReportSubmit, initi
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
-            <Button type="submit" className="font-headline">{initialData ? 'Update Report' : 'Submit Report'}</Button>
+            <Button type="submit" className="font-headline">{initialData?.id ? 'Update Report' : 'Submit Report'}</Button>
           </DialogFooter>
         </form>
       </DialogContent>
