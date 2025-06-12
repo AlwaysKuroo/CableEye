@@ -152,7 +152,7 @@ export default function CableReportForm({ isOpen, onClose, onReportSubmit, initi
 
   return (
     <Dialog open={isOpen} onOpenChange={(openState) => { if (!openState) onClose(); }}>
-      <DialogContent className="sm:max-w-lg bg-card text-card-foreground">
+      <DialogContent className="sm:max-w-lg bg-card text-card-foreground max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="font-headline text-2xl flex items-center">
             <AlertTriangle className="mr-2 h-6 w-6 text-primary" /> 
@@ -183,13 +183,13 @@ export default function CableReportForm({ isOpen, onClose, onReportSubmit, initi
             <Label className="font-headline flex items-center"><Camera className="mr-2 h-4 w-4" />Photo Evidence</Label>
             
             {photoPreview && (
-              <div className="mb-2 flex justify-center">
+              <div className="my-2 flex justify-center">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={photoPreview} alt="Preview" className="max-h-40 rounded-md object-contain border" />
               </div>
             )}
             {fileName && !photoPreview && (
-              <div className="mb-2 text-center text-sm text-muted-foreground">
+              <div className="my-2 text-center text-sm text-muted-foreground">
                 Current file: {fileName}
                 {initialData?.id && initialData.photoFileName && fileName === initialData.photoFileName && <span className="text-amber-500"> (This is the existing photo. Upload/capture new to replace.)</span>}
               </div>
